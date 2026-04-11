@@ -1,0 +1,16 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+draft.txt
+session.json
+*.exe
+*.pkg
+build/
+dist/
+*.spec
+chroma_db/
+chroma.sqlite3
+*.bin
+editor.html
+pelda_*.docx
