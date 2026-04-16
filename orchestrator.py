@@ -1,7 +1,7 @@
 from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 from data_guardian import extract_protected_data, restore_protected_data
-from rag_modul import get_context, add_document
+from rag_modul import get_context, add_document, clear_collection
 from file_reader import read_file
 from stylist_agent import analyze_and_save, build_style_prompt
 from tender_analyzer import analyze_tender, print_tender_summary
@@ -10,6 +10,8 @@ import re
 import os
 
 load_dotenv()
+
+_style_cache = {}  # {"hash": ..., "prompt": ...} – stílusminta cache
 
 llm = ChatAnthropic(
     model="claude-haiku-4-5",
@@ -57,14 +59,18 @@ reviewer_prompt = ChatPromptTemplate.from_messages([
     
     {text}
     
+    Pályázati kiírás követelményei amiket teljesíteni kell:
+    {tender_requirements}
+    
     Szempontok:
     - Szakmai meggyőzőerő
     - Magyar nyelvhelyesség
     - Logikai felépítés
     - Pályázati stílus
-    - Követelmények teljesítése
+    - Követelmények teljesítése (a fenti kiírás alapján!)
     """)
 ])
+
 
 
 def parse_reviewer(response):
@@ -114,16 +120,27 @@ def run(task, data, tender_text=None, style_text=None, max_rounds=2, progress_ca
 
     # 1. Adatok védelme
     protected_data, vedett = extract_protected_data(data)
-    context = get_context(task)
 
-    # 2. Stílus elemzése
+    # 2. Stílus elemzése – csak ha új vagy megváltozott stílusminta
+    import hashlib
     style_prompt = ""
     if style_text:
-        log("Stílus elemzése...", 10)
-        style = analyze_and_save(style_text, "stilus_minta")
-        style_prompt = build_style_prompt(style)
+        style_hash = hashlib.md5(style_text.encode()).hexdigest()
+        if _style_cache.get("hash") != style_hash:
+            log("Stílus elemzése...", 10)
+            clear_collection()
+            style = analyze_and_save(style_text, "stilus_minta")
+            _style_cache["hash"] = style_hash
+            _style_cache["prompt"] = build_style_prompt(style)
+        else:
+            log("Stílusminta változatlan, cache-ből betöltve.", 10)
+        style_prompt = _style_cache["prompt"]
     else:
+        clear_collection()
+        _style_cache.clear()
         style_prompt = "Professzionális, formális pályázati stílus."
+
+    context = get_context(task) if style_text else ""
 
     # 3. Pályázati kiírás elemzése
     tender_requirements = ""
@@ -133,9 +150,18 @@ def run(task, data, tender_text=None, style_text=None, max_rounds=2, progress_ca
         if tender:
             print_tender_summary(tender)
             tender_requirements = f"""
-Kötelező fejezetek: {', '.join(tender['kotelezo_fejezetek'])}
-Fontos követelmények: {', '.join(tender['fontos_kovetelmenyek'])}
-"""
+    PÁLYÁZAT: {tender.get('palyazat_neve', '')}
+    HATÁRIDŐ: {tender.get('beadasi_hatarid', '')}
+    MAX TÁMOGATÁS: {tender.get('max_tamogatas', '')}
+    TÁMOGATÁS ARÁNYA: {tender.get('tamogatas_arany', '')}
+
+    KÖTELEZŐ FEJEZETEK: {', '.join(tender.get('kotelezo_fejezetek', []))}
+    FONTOS KÖVETELMÉNYEK: {', '.join(tender.get('fontos_kovetelmenyek', []))}
+    KÖTELEZŐ DOKUMENTUMOK: {', '.join(tender.get('kotelezo_dokumentumok', []))}
+    ÉRTÉKELÉSI SZEMPONTOK: {', '.join(tender.get('ertékelesi_szempontok', []))}
+    JOGOSULTSÁGI FELTÉTELEK: {', '.join(tender.get('jogosultsagi_feltetelek', []))}
+    HIÁNYZÓ ADATOK: {', '.join(tender.get('hianyzó_adatok', []))}
+    """
     else:
         tender_requirements = "Általános pályázati követelmények."
 
@@ -167,7 +193,13 @@ Fontos követelmények: {', '.join(tender['fontos_kovetelmenyek'])}
 
         # Reviewer pontozás
         log(f"{round_num}. kör – Lektorálás...", pct + 10)
-        reviewer_response = reviewer_chain.invoke({"text": raw_text})
+        reviewer_response = reviewer_chain.invoke({
+            "text": raw_text,
+            "tender_requirements": tender_requirements
+})
+        
+        
+
         score, feedback = parse_reviewer(reviewer_response.content)
 
         log(f"Pontszám: {score}/100 | {feedback}", pct + 15)
@@ -199,6 +231,7 @@ FONTOS JAVÍTÁSI SZEMPONTOK A {round_num}. KÖR ALAPJÁN:
     log(f"Kész! Végső pontszám: {best_score}/100", 100)
 
     return final_text, best_score
+
 
 
 # Teszt

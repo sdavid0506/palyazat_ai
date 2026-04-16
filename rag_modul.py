@@ -37,11 +37,13 @@ def add_document(text, doc_id, metadata={}):
 
 def search(query, n_results=3):
     """Keres a tárolt dokumentumokban."""
+    if collection.count() == 0:
+        return []
     results = collection.query(
         query_texts=[query],
-        n_results=n_results
+        n_results=min(n_results, collection.count())
     )
-    
+
     docs = results["documents"][0]
     print(f"🔍 Találatok száma: {len(docs)}")
     return docs
@@ -51,6 +53,14 @@ def get_context(query):
     docs = search(query)
     context = "\n---\n".join(docs)
     return context
+
+
+def clear_collection():
+    """Törli az összes dokumentumot a kollekcióból (új generálás előtt)."""
+    ids = collection.get()["ids"]
+    if ids:
+        collection.delete(ids=ids)
+        print(f"🗑️  ChromaDB törölve: {len(ids)} chunk eltávolítva.")
 
 
 if __name__ == "__main__":

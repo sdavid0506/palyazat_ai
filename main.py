@@ -311,8 +311,9 @@ class MissingDataDialog(QDialog):
     def __init__(self, missing_fields, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Hiányzó adatok")
-        self.setMinimumWidth(480)
-        self.fields = {}
+        self.setMinimumWidth(500)
+        self._yn = {}    # field -> {"value": str}
+        self.fields = {} # field -> QLineEdit
 
         layout = QVBoxLayout(self)
 
@@ -333,18 +334,49 @@ class MissingDataDialog(QDialog):
         form.setContentsMargins(4, 4, 4, 4)
 
         for field in missing_fields:
+            self._yn[field] = {"value": ""}
+
             field_widget = QWidget()
             field_layout = QVBoxLayout(field_widget)
             field_layout.setContentsMargins(0, 0, 0, 0)
-            field_layout.setSpacing(3)
+            field_layout.setSpacing(5)
+
             label = QLabel(field)
             label.setWordWrap(True)
             label.setStyleSheet("color: #334155; font-weight: bold;")
-            line = QLineEdit()
-            line.setPlaceholderText("Írd be az adatot...")
-            self.fields[field] = line
             field_layout.addWidget(label)
-            field_layout.addWidget(line)
+
+            # Igen / Nem gombok + szöveges mező egy sorban
+            input_row = QHBoxLayout()
+            input_row.setSpacing(6)
+
+            igen_btn = QPushButton("Igen")
+            nem_btn = QPushButton("Nem")
+            for btn in (igen_btn, nem_btn):
+                btn.setFixedSize(58, 28)
+                btn.setCheckable(True)
+                btn.setStyleSheet(self._yn_style(False))
+
+            def _make_handler(f, b_igen, b_nem, val):
+                def handler():
+                    self._yn[f]["value"] = val
+                    b_igen.setChecked(val == "Igen")
+                    b_nem.setChecked(val == "Nem")
+                    b_igen.setStyleSheet(self._yn_style(val == "Igen"))
+                    b_nem.setStyleSheet(self._yn_style(val == "Nem"))
+                return handler
+
+            igen_btn.clicked.connect(_make_handler(field, igen_btn, nem_btn, "Igen"))
+            nem_btn.clicked.connect(_make_handler(field, igen_btn, nem_btn, "Nem"))
+
+            line = QLineEdit()
+            line.setPlaceholderText("Részletes válasz (opcionális)...")
+            self.fields[field] = line
+
+            input_row.addWidget(igen_btn)
+            input_row.addWidget(nem_btn)
+            input_row.addWidget(line, stretch=1)
+            field_layout.addLayout(input_row)
             form.addWidget(field_widget)
 
         form.addStretch()
@@ -360,9 +392,144 @@ class MissingDataDialog(QDialog):
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
 
+    @staticmethod
+    def _yn_style(active):
+        if active:
+            return ("QPushButton { background:#2563eb; color:white; border:none; "
+                    "border-radius:5px; font-weight:bold; }")
+        return ("QPushButton { background:#f1f5f9; color:#334155; "
+                "border:1px solid #cbd5e1; border-radius:5px; }"
+                "QPushButton:hover { background:#dbeafe; border-color:#93c5fd; }")
+
     def get_values(self):
-        """Visszaadja a kitöltött mezőket dict-ként."""
-        return {k: v.text().strip() for k, v in self.fields.items() if v.text().strip()}
+        """Visszaadja a kitöltött mezőket dict-ként.
+        Ha igen/nem és szöveg is van: 'Igen – [szöveg]', különben amelyik ki van töltve."""
+        result = {}
+        for field in self._yn:
+            yn_val = self._yn[field]["value"]
+            txt_val = self.fields[field].text().strip()
+            if yn_val and txt_val:
+                result[field] = f"{yn_val} – {txt_val}"
+            elif yn_val:
+                result[field] = yn_val
+            elif txt_val:
+                result[field] = txt_val
+        return result
+
+
+# ── Tender elemzés megjelenítő dialógus ───────────────────────────────────
+
+class TenderInfoDialog(QDialog):
+    """Megjeleníti a pályázati kiírás teljes elemzési eredményét."""
+
+    SECTIONS = [
+        ("palyazat_neve",           None,                        None),
+        ("jogosultsagi_feltetelek", "Jogosultsági feltételek",   "#dc2626"),
+        ("fontos_kovetelmenyek",    "Fontos követelmények",      "#b45309"),
+        ("kotelezo_dokumentumok",   "Kötelező dokumentumok",     "#7c3aed"),
+        ("kotelezo_fejezetek",      "Kötelező fejezetek",        "#2563eb"),
+        ("tamogathato_tevekenysegek","Támogatható tevékenységek","#059669"),
+        ("nem_tamogathato_koltsegek","Nem támogatható költségek","#92400e"),
+        ("fontos_hataridok",        "Fontos határidők",          "#d97706"),
+        ("ertékelesi_szempontok",   "Értékelési szempontok",     "#0891b2"),
+        ("hianyzó_adatok",          "Bekérendő adatok",          "#475569"),
+    ]
+
+    _SZEMET = {"–", "--", "nem található", "nem talalhato", ""}
+
+    @classmethod
+    def _clean(cls, items):
+        """Kiszűri az üres/placeholder elemeket."""
+        return [i for i in items if i.strip().lower() not in cls._SZEMET and i.strip()]
+
+    def __init__(self, tender_info, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Pályázati kiírás – elemzés")
+        self.setMinimumSize(700, 620)
+        self.resize(760, 680)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+        layout.setContentsMargins(14, 14, 14, 10)
+
+        # Fejléc
+        name = tender_info.get("palyazat_neve", "–")
+        header = QLabel(name)
+        header.setWordWrap(True)
+        header.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #1e293b; "
+            "background: #f1f5f9; border-radius: 5px; padding: 8px 10px;"
+        )
+        layout.addWidget(header)
+
+        # Meta sor
+        meta_parts = []
+        for key, label in [
+            ("beadasi_hatarid",        "Határidő"),
+            ("max_tamogatas",          "Max támogatás"),
+            ("tamogatas_arany",        "Intenzitás"),
+            ("megvalositas_hatarideje","Megvalósítás"),
+            ("fenntartasi_kotelezettseg","Fenntartás"),
+        ]:
+            val = tender_info.get(key, "").strip()
+            if val and val.lower() not in ("nem található", "nem talalhato"):
+                meta_parts.append(f"<b>{label}:</b> {val}")
+
+        if meta_parts:
+            meta = QLabel("&nbsp;&nbsp;|&nbsp;&nbsp;".join(meta_parts))
+            meta.setTextFormat(Qt.TextFormat.RichText)
+            meta.setWordWrap(True)
+            meta.setStyleSheet("color: #475569; font-size: 11px; padding: 4px 2px;")
+            layout.addWidget(meta)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #e2e8f0;")
+        layout.addWidget(sep)
+
+        # Görgethető szekciók
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        inner = QWidget()
+        inner_layout = QVBoxLayout(inner)
+        inner_layout.setSpacing(8)
+        inner_layout.setContentsMargins(2, 2, 6, 2)
+
+        for field, title, color in self.SECTIONS:
+            if field == "palyazat_neve":
+                continue
+            items = self._clean(tender_info.get(field, []))
+            if not items:
+                continue
+
+            sec_lbl = QLabel(f"{title}  <span style='color:#94a3b8; font-weight:normal;'>({len(items)})</span>")
+            sec_lbl.setTextFormat(Qt.TextFormat.RichText)
+            sec_lbl.setStyleSheet(
+                f"color: {color}; font-weight: bold; font-size: 12px; margin-top: 6px;"
+            )
+            inner_layout.addWidget(sec_lbl)
+
+            for item in items:
+                row = QLabel(f"• {item}")
+                row.setWordWrap(True)
+                row.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                row.setStyleSheet(
+                    "color: #334155; font-size: 12px; padding: 1px 0 1px 12px;"
+                )
+                inner_layout.addWidget(row)
+
+        inner_layout.addStretch()
+        scroll.setWidget(inner)
+        layout.addWidget(scroll)
+
+        close_btn = QPushButton("Bezárás")
+        close_btn.setStyleSheet(
+            "background:#f1f5f9; border:1px solid #cbd5e1; "
+            "border-radius:4px; padding:6px 18px;"
+        )
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
 
 # ── Főablak ────────────────────────────────────────────────────────────────
@@ -387,6 +554,8 @@ class MainWindow(QMainWindow):
         self._tender_info = {}
         self._versions = []   # [(text, score), ...]
         self._version_idx = -1
+        self._checklist_add_row = None
+        self._pre_analyzer = None
 
         # Piszkozat fájl elérési útja (exe / script mellé)
         if getattr(sys, 'frozen', False):
@@ -464,9 +633,23 @@ class MainWindow(QMainWindow):
         self.btn_regi.clicked.connect(lambda: self._pick_file("regi"))
         layout.addWidget(self.btn_regi)
 
+        kiiras_row = QHBoxLayout()
+        kiiras_row.setSpacing(4)
         self.btn_kiiras = self._file_button("Pályázati kiírás")
         self.btn_kiiras.clicked.connect(lambda: self._pick_file("kiiras"))
-        layout.addWidget(self.btn_kiiras)
+        kiiras_row.addWidget(self.btn_kiiras, stretch=1)
+        self.btn_tender_info = QPushButton("📋")
+        self.btn_tender_info.setFixedSize(34, 34)
+        self.btn_tender_info.setToolTip("Elemzés megtekintése")
+        self.btn_tender_info.setEnabled(False)
+        self.btn_tender_info.setStyleSheet(
+            "QPushButton { background:#f1f5f9; border:1px solid #cbd5e1; border-radius:5px; font-size:15px; }"
+            "QPushButton:hover { background:#dbeafe; border-color:#93c5fd; }"
+            "QPushButton:disabled { color:#cbd5e1; }"
+        )
+        self.btn_tender_info.clicked.connect(self._show_tender_info)
+        kiiras_row.addWidget(self.btn_tender_info)
+        layout.addLayout(kiiras_row)
 
         self.btn_ceg = self._file_button("Cégadatlap (PDF/DOCX)")
         self.btn_ceg.clicked.connect(lambda: self._pick_file("ceg"))
@@ -836,10 +1019,28 @@ class MainWindow(QMainWindow):
         self._file_loaders.add(loader)  # listában tartjuk, nem írjuk felül
         self.status_bar.showMessage(f"Fájl beolvasása: {os.path.basename(path)}...")
 
+    def _on_pre_analysis_done(self, tender):
+        self._tender_info = tender
+        self.btn_tender_info.setEnabled(True)
+        self.status_bar.showMessage("Pályázati kiírás elemzése kész – kattints a 📋 gombra a megtekintéshez.")
+
+    def _show_tender_info(self):
+        if not self._tender_info:
+            return
+        dlg = TenderInfoDialog(self._tender_info, self)
+        dlg.exec()
+
     def _on_file_loaded(self, text, role):
         if role == "tender":
             self._tender_text = text
-            self.status_bar.showMessage("Pályázati kiírás betöltve.")
+            self.status_bar.showMessage("Pályázati kiírás betöltve – elemzés folyamatban...")
+            self.btn_tender_info.setEnabled(False)
+            self._pre_analyzer = TenderAnalyzerWorker(text)
+            self._pre_analyzer.analysis_done.connect(self._on_pre_analysis_done)
+            self._pre_analyzer.error.connect(
+                lambda e: self.status_bar.showMessage(f"Elemzési hiba: {e}")
+            )
+            self._pre_analyzer.start()
         elif role == "style":
             self._style_text = text
             self.status_bar.showMessage("Régi pályázat betöltve (stílusminta).")
@@ -883,6 +1084,7 @@ class MainWindow(QMainWindow):
         data = self._pending_data
 
         self._tender_info = tender  # eltároljuk a generálás utáni ellenőrzőlistához
+        self.btn_tender_info.setEnabled(True)
 
         missing_fields = tender.get('hianyzó_adatok', [])
         if missing_fields:
@@ -964,6 +1166,8 @@ class MainWindow(QMainWindow):
         if not tender:
             return
 
+        self._checklist_add_row = None
+
         # Töröljük az előző tartalmat
         while self.checklist_body_layout.count():
             item = self.checklist_body_layout.takeAt(0)
@@ -999,12 +1203,43 @@ class MainWindow(QMainWindow):
             )
             self.checklist_body_layout.addWidget(sec_lbl)
             for item in items:
-                row = QCheckBox(item)
-                row.setStyleSheet(self._checkbox_style(False))
-                row.stateChanged.connect(lambda state, cb=row: cb.setStyleSheet(
-                    self._checkbox_style(state == 2)
-                ))
-                self.checklist_body_layout.addWidget(row)
+                self._add_checklist_item(item)
+
+        # Hozzáadás sor
+        add_row = QWidget()
+        add_row_layout = QHBoxLayout(add_row)
+        add_row_layout.setContentsMargins(0, 6, 0, 2)
+        add_row_layout.setSpacing(4)
+
+        add_input = QLineEdit()
+        add_input.setPlaceholderText("Új elem hozzáadása...")
+        add_input.setStyleSheet(
+            "border: 1px dashed #94a3b8; border-radius: 4px; "
+            "padding: 3px 6px; font-size: 12px; background: white;"
+        )
+        add_row_layout.addWidget(add_input, stretch=1)
+
+        add_btn = QPushButton("+")
+        add_btn.setFixedSize(22, 22)
+        add_btn.setToolTip("Hozzáadás")
+        add_btn.setStyleSheet(
+            "QPushButton { background: #2563eb; color: white; border: none; "
+            "border-radius: 4px; font-weight: bold; font-size: 14px; }"
+            "QPushButton:hover { background: #1d4ed8; }"
+        )
+
+        def do_add():
+            txt = add_input.text().strip()
+            if txt:
+                self._add_checklist_item(txt)
+                add_input.clear()
+
+        add_btn.clicked.connect(lambda _: do_add())
+        add_input.returnPressed.connect(do_add)
+        add_row_layout.addWidget(add_btn)
+
+        self._checklist_add_row = add_row
+        self.checklist_body_layout.addWidget(add_row)
 
         self.checklist_frame.setVisible(True)
         self._checklist_scroll.setVisible(True)
@@ -1018,6 +1253,48 @@ class MainWindow(QMainWindow):
             f"border-radius: 3px; background: white; }}"
             f"QCheckBox::indicator:checked {{ background: #16a34a; border-color: #16a34a; }}"
         )
+
+    def _add_checklist_item(self, text):
+        """Hozzáad egy új sort az ellenőrzőlistához törlés gombbal."""
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(2)
+
+        cb = QCheckBox(text)
+        cb.setStyleSheet(self._checkbox_style(False))
+        cb.stateChanged.connect(lambda state, c=cb: c.setStyleSheet(
+            self._checkbox_style(state == 2)
+        ))
+        row_layout.addWidget(cb, stretch=1)
+
+        del_btn = QPushButton("✕")
+        del_btn.setFixedSize(18, 18)
+        del_btn.setToolTip("Törlés")
+        del_btn.setStyleSheet(
+            "QPushButton { border: none; color: #94a3b8; font-size: 10px; "
+            "background: transparent; border-radius: 2px; }"
+            "QPushButton:hover { color: #dc2626; background: #fee2e2; }"
+        )
+        del_btn.clicked.connect(lambda _, w=row: self._remove_checklist_row(w))
+        row_layout.addWidget(del_btn)
+
+        # Beillesztés a hozzáadás-sor elé (ha létezik), különben a végére
+        count = self.checklist_body_layout.count()
+        insert_pos = count
+        if self._checklist_add_row is not None:
+            for i in range(count):
+                item = self.checklist_body_layout.itemAt(i)
+                if item and item.widget() is self._checklist_add_row:
+                    insert_pos = i
+                    break
+        self.checklist_body_layout.insertWidget(insert_pos, row)
+        return cb
+
+    def _remove_checklist_row(self, row_widget):
+        """Eltávolít egy ellenőrzőlista sort."""
+        self.checklist_body_layout.removeWidget(row_widget)
+        row_widget.deleteLater()
 
     def _toggle_checklist(self):
         visible = self._checklist_scroll.isVisible()
@@ -1061,16 +1338,14 @@ class MainWindow(QMainWindow):
         hianyzik = set(result.get("hianyzik", []))
 
         # Végigmegyünk a checkboxokon és beállítjuk az állapotukat
-        for i in range(self.checklist_body_layout.count()):
-            widget = self.checklist_body_layout.itemAt(i).widget()
-            if isinstance(widget, QCheckBox):
-                szoveg = widget.text()
-                if any(t.lower() in szoveg.lower() or szoveg.lower() in t.lower()
-                       for t in teljesitett):
-                    widget.setChecked(True)
-                elif any(h.lower() in szoveg.lower() or szoveg.lower() in h.lower()
-                         for h in hianyzik):
-                    widget.setChecked(False)
+        for cb in self.checklist_body.findChildren(QCheckBox):
+            szoveg = cb.text()
+            if any(t.lower() in szoveg.lower() or szoveg.lower() in t.lower()
+                   for t in teljesitett):
+                cb.setChecked(True)
+            elif any(h.lower() in szoveg.lower() or szoveg.lower() in h.lower()
+                     for h in hianyzik):
+                cb.setChecked(False)
 
         # Nyissuk ki a listát ha be volt csukva
         self._checklist_scroll.setVisible(True)
@@ -1401,6 +1676,10 @@ class MainWindow(QMainWindow):
         )
         if ans != QMessageBox.StandardButton.Yes:
             return
+        # Cache-ek törlése
+        from tender_analyzer import clear_tender_cache
+        clear_tender_cache()
+
         # Fájl gombok
         self._regi_path = None
         self._kiiras_path = None
@@ -1416,6 +1695,7 @@ class MainWindow(QMainWindow):
         # Checklist elrejtése
         self.checklist_frame.setVisible(False)
         self._tender_info = {}
+        self.btn_tender_info.setEnabled(False)
         self.status_bar.showMessage("Mezők törölve.")
 
     def _on_clear(self):
@@ -1448,10 +1728,9 @@ class MainWindow(QMainWindow):
         try:
             # Checkbox állapotok összegyűjtése
             checked_items = []
-            for i in range(self.checklist_body_layout.count()):
-                w = self.checklist_body_layout.itemAt(i).widget()
-                if isinstance(w, QCheckBox) and w.isChecked():
-                    checked_items.append(w.text())
+            for cb in self.checklist_body.findChildren(QCheckBox):
+                if cb.isChecked():
+                    checked_items.append(cb.text())
 
             session = {
                 "regi_path": self._regi_path,
@@ -1503,13 +1782,13 @@ class MainWindow(QMainWindow):
             # Checklist visszaállítása
             if session.get("tender_info"):
                 self._tender_info = session["tender_info"]
+                self.btn_tender_info.setEnabled(True)
                 self._update_checklist()
                 # Checkbox állapotok visszaállítása
                 checked_items = set(session.get("checked_items", []))
-                for i in range(self.checklist_body_layout.count()):
-                    w = self.checklist_body_layout.itemAt(i).widget()
-                    if isinstance(w, QCheckBox) and w.text() in checked_items:
-                        w.setChecked(True)
+                for cb in self.checklist_body.findChildren(QCheckBox):
+                    if cb.text() in checked_items:
+                        cb.setChecked(True)
 
         except Exception:
             pass
