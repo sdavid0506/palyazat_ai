@@ -13,8 +13,13 @@ if getattr(sys, 'frozen', False):
 else:
     _BASE = os.path.dirname(os.path.abspath(__file__))
 
-chroma_client = chromadb.PersistentClient(path=os.path.join(_BASE, "chroma_db"))
-collection = chroma_client.get_or_create_collection(name="palyazatok")
+try:
+    chroma_client = chromadb.PersistentClient(path=os.path.join(_BASE, "chroma_db"))
+    collection = chroma_client.get_or_create_collection(name="palyazatok")
+except Exception as e:
+    print(f"⚠️  ChromaDB inicializálás sikertelen: {e}")
+    chroma_client = None
+    collection = None
 
 # Szöveg daraboló (nagy szövegeket kis darabokra vágja)
 splitter = RecursiveCharacterTextSplitter(
@@ -24,29 +29,38 @@ splitter = RecursiveCharacterTextSplitter(
 
 def add_document(text, doc_id, metadata={}):
     """Betesz egy dokumentumot az adatbázisba."""
+    if collection is None:
+        print("⚠️  ChromaDB nem elérhető, stílusminta kihagyva.")
+        return
     chunks = splitter.split_text(text)
-    
-    for i, chunk in enumerate(chunks):
-        collection.add(
-            documents=[chunk],
-            metadatas=[{**metadata, "chunk": i}],
-            ids=[f"{doc_id}_chunk_{i}"]
-        )
-    
-    print(f"✅ Betöltve: {len(chunks)} darab – {doc_id}")
+    try:
+        for i, chunk in enumerate(chunks):
+            collection.add(
+                documents=[chunk],
+                metadatas=[{**metadata, "chunk": i}],
+                ids=[f"{doc_id}_chunk_{i}"]
+            )
+        print(f"✅ Betöltve: {len(chunks)} darab – {doc_id}")
+    except Exception as e:
+        print(f"⚠️  ChromaDB mentés sikertelen: {e}")
 
 def search(query, n_results=3):
     """Keres a tárolt dokumentumokban."""
-    if collection.count() == 0:
+    if collection is None:
         return []
-    results = collection.query(
-        query_texts=[query],
-        n_results=min(n_results, collection.count())
-    )
-
-    docs = results["documents"][0]
-    print(f"🔍 Találatok száma: {len(docs)}")
-    return docs
+    try:
+        if collection.count() == 0:
+            return []
+        results = collection.query(
+            query_texts=[query],
+            n_results=min(n_results, collection.count())
+        )
+        docs = results["documents"][0]
+        print(f"🔍 Találatok száma: {len(docs)}")
+        return docs
+    except Exception as e:
+        print(f"⚠️  ChromaDB keresés sikertelen: {e}")
+        return []
 
 def get_context(query):
     """Összefűzi a találatokat egy kontextussá az AI-nak."""
@@ -57,10 +71,15 @@ def get_context(query):
 
 def clear_collection():
     """Törli az összes dokumentumot a kollekcióból (új generálás előtt)."""
-    ids = collection.get()["ids"]
-    if ids:
-        collection.delete(ids=ids)
-        print(f"🗑️  ChromaDB törölve: {len(ids)} chunk eltávolítva.")
+    if collection is None:
+        return
+    try:
+        ids = collection.get()["ids"]
+        if ids:
+            collection.delete(ids=ids)
+            print(f"🗑️  ChromaDB törölve: {len(ids)} chunk eltávolítva.")
+    except Exception as e:
+        print(f"⚠️  ChromaDB törlés sikertelen: {e}")
 
 
 if __name__ == "__main__":

@@ -156,7 +156,7 @@ class RescorerWorker(QThread):
         try:
             from orchestrator import reviewer_prompt, parse_reviewer, llm
             chain = reviewer_prompt | llm
-            response = chain.invoke({"text": self.text})
+            response = chain.invoke({"text": self.text, "tender_requirements": ""})
             score, feedback = parse_reviewer(response.content)
             self.finished.emit(score, feedback)
         except Exception as e:
