@@ -77,6 +77,29 @@ def beautify_to_html(text: str) -> str:
             i += 1
             continue
 
+        # Táblázat: markdown pipe-szintaxis | Fejléc | ...
+        if '|' in stripped and i + 1 < len(lines) and re.match(r'^\|[\s\-:|]+\|', lines[i + 1].strip()):
+            header_cells = [_inline(c.strip()) for c in stripped.strip('|').split('|')]
+            i += 2  # fejléc + elválasztó sor kihagyása
+            data_rows = []
+            while i < len(lines) and '|' in lines[i].strip():
+                row_cells = [_inline(c.strip()) for c in lines[i].strip().strip('|').split('|')]
+                data_rows.append(row_cells)
+                i += 1
+            th = "background:#f1f5f9; border:1px solid #cbd5e1; padding:6px 10px; font-weight:bold; text-align:left;"
+            td = "border:1px solid #cbd5e1; padding:6px 10px;"
+            thead = '<tr>' + ''.join(f'<th style="{th}">{c}</th>' for c in header_cells) + '</tr>'
+            tbody = ''.join(
+                '<tr>' + ''.join(f'<td style="{td}">{c}</td>' for c in row) + '</tr>'
+                for row in data_rows
+            )
+            html_parts.append(
+                '<table border="1" cellspacing="0" '
+                'style="border-collapse:collapse; width:100%; margin:8px 0;">'
+                f'<thead>{thead}</thead><tbody>{tbody}</tbody></table>'
+            )
+            continue
+
         # Lista: egymás utáni "- " vagy "* " sorokat összegyűjtjük
         if re.match(r'^[-*]\s+', stripped):
             items = []
@@ -126,7 +149,7 @@ class _QtHtmlToDocx(HTMLParser):
     Kezeli a <h1>–<h3>, <p>, <b>, <i>, <ul>, <li>, <span style="..."> elemeket.
     """
 
-    _SKIP = {'html', 'body', 'meta', 'qt', 'br'}
+    _SKIP = {'html', 'body', 'meta', 'qt', 'br', 'thead', 'tbody', 'tfoot'}
     _IGNORE_CONTENT = {'head', 'style', 'script'}
 
     def __init__(self, doc):
@@ -140,6 +163,12 @@ class _QtHtmlToDocx(HTMLParser):
         self._in_list = False
         self._in_li = False
         self._ignore_depth = 0  # >0: head/style belsejében vagyunk
+        self._in_table = False
+        self._table_rows = []         # [[(szöveg, is_header), ...], ...]
+        self._table_current_row = []
+        self._table_cell_buf = []
+        self._in_td = False
+        self._table_cell_is_header = False
 
     # ── stílus kinyerése ──────────────────────────────────────────────────
 
@@ -227,6 +256,23 @@ class _QtHtmlToDocx(HTMLParser):
             self._italic_stack.append(False)
             self._underline_stack.append(False)
 
+        elif tag == 'table':
+            self._in_table = True
+            self._table_rows = []
+            self._table_current_row = []
+            self._table_cell_buf = []
+            self._in_td = False
+
+        elif tag == 'tr':
+            if self._in_table:
+                self._table_current_row = []
+
+        elif tag in ('td', 'th'):
+            if self._in_table:
+                self._in_td = True
+                self._table_cell_buf = []
+                self._table_cell_is_header = (tag == 'th')
+
     def handle_endtag(self, tag):
         if tag in self._IGNORE_CONTENT:
             self._ignore_depth = max(0, self._ignore_depth - 1)
@@ -246,9 +292,44 @@ class _QtHtmlToDocx(HTMLParser):
             self._in_li = False
         if tag == 'ul':
             self._in_list = False
+        if tag in ('td', 'th'):
+            if self._in_table and self._in_td:
+                self._table_current_row.append(
+                    (list(self._table_cell_buf), self._table_cell_is_header)
+                )
+                self._in_td = False
+        if tag == 'tr':
+            if self._in_table and self._table_current_row:
+                self._table_rows.append(self._table_current_row)
+                self._table_current_row = []
+        if tag == 'table':
+            self._in_table = False
+            if self._table_rows:
+                num_cols = max(len(r) for r in self._table_rows)
+                if num_cols > 0:
+                    table = self.doc.add_table(rows=0, cols=num_cols)
+                    table.style = 'Table Grid'
+                    for row_data in self._table_rows:
+                        row = table.add_row()
+                        for ci, (runs, is_header) in enumerate(row_data):
+                            if ci < num_cols:
+                                para = row.cells[ci].paragraphs[0]
+                                for (text, bold, italic, underline) in runs:
+                                    r = para.add_run(text)
+                                    r.bold = True if (bold or is_header) else None
+                                    r.italic = italic or None
+                                    r.underline = underline or None
 
     def handle_data(self, data):
         if self._ignore_depth > 0:
+            return
+        if self._in_table and self._in_td:
+            self._table_cell_buf.append((
+                data,
+                self._bold_stack[-1],
+                self._italic_stack[-1],
+                self._underline_stack[-1],
+            ))
             return
         if not data.strip():
             return

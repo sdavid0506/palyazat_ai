@@ -677,12 +677,24 @@ class MainWindow(QMainWindow):
         self._saved_combo = QComboBox()
         self._saved_combo.setToolTip("Korábban elmentett pályázati kiírás elemzések")
         layout.addWidget(self._saved_combo)
+        saved_btn_row = QHBoxLayout()
+        saved_btn_row.setSpacing(4)
         load_saved_btn = QPushButton("Betöltés")
         load_saved_btn.setObjectName("resetBtn")
         load_saved_btn.setFixedHeight(30)
         load_saved_btn.setToolTip("Kiválasztott elemzés betöltése (az elemzés újra nem fut le)")
         load_saved_btn.clicked.connect(self._load_saved_analysis)
-        layout.addWidget(load_saved_btn)
+        saved_btn_row.addWidget(load_saved_btn, stretch=1)
+        delete_saved_btn = QPushButton("🗑")
+        delete_saved_btn.setFixedSize(30, 30)
+        delete_saved_btn.setToolTip("Kiválasztott elemzés törlése")
+        delete_saved_btn.setStyleSheet(
+            "QPushButton { background:#f1f5f9; border:1px solid #cbd5e1; border-radius:5px; font-size:14px; }"
+            "QPushButton:hover { background:#fee2e2; border-color:#fca5a5; }"
+        )
+        delete_saved_btn.clicked.connect(self._delete_saved_analysis)
+        saved_btn_row.addWidget(delete_saved_btn)
+        layout.addLayout(saved_btn_row)
 
         layout.addWidget(self._hsep())
 
@@ -1097,6 +1109,36 @@ class MainWindow(QMainWindow):
         self.btn_save_analysis.setEnabled(False)
         self._update_checklist()
         self.status_bar.showMessage(f"Elmentett elemzés betöltve: {name} – az elemzés nem fut újra.")
+
+    def _delete_saved_analysis(self):
+        idx = self._saved_combo.currentIndex()
+        if idx <= 0:
+            return
+        name = self._saved_combo.currentText()
+        ans = QMessageBox.question(
+            self, "Törlés megerősítése",
+            f"Biztosan törlöd ezt az elmentett elemzést?\n\n{name}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        from tender_analyzer import SAVED_DIR
+        path = os.path.join(SAVED_DIR, name + ".json")
+        try:
+            os.remove(path)
+        except Exception:
+            self.status_bar.showMessage(f"Nem sikerült törölni: {name}")
+            return
+        # Ha az éppen betöltött elemzést törölték, reseteljük az állapotot
+        if self._saved_analysis_name == name:
+            self._saved_analysis_name = None
+            self._tender_info = {}
+            self.btn_kiiras.setText("  Pályázati kiírás")
+            self.btn_tender_info.setEnabled(False)
+            self.btn_save_analysis.setEnabled(False)
+            self.checklist_frame.setVisible(False)
+        self._refresh_saved_combo()
+        self.status_bar.showMessage(f"Elemzés törölve: {name}")
 
     def _on_file_loaded(self, text, role):
         if role == "tender":
@@ -1820,6 +1862,7 @@ class MainWindow(QMainWindow):
                 "regi_path": self._regi_path,
                 "kiiras_path": self._kiiras_path,
                 "ceg_path": self._ceg_path,
+                "saved_analysis_name": self._saved_analysis_name,
                 "task": self.task_edit.toPlainText(),
                 "data": self.data_edit.toPlainText(),
                 "rounds": self.rounds_spin.value(),
@@ -1862,6 +1905,12 @@ class MainWindow(QMainWindow):
                 self.data_edit.setPlainText(session["data"])
             if session.get("rounds"):
                 self.rounds_spin.setValue(session["rounds"])
+
+            # Elmentett elemzés nevének visszaállítása
+            saved_name = session.get("saved_analysis_name")
+            if saved_name and not session.get("kiiras_path"):
+                self._saved_analysis_name = saved_name
+                self.btn_kiiras.setText(f"  {saved_name} (betöltve)")
 
             # Checklist visszaállítása
             if session.get("tender_info"):
