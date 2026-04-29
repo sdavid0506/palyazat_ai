@@ -105,7 +105,7 @@ def pre_analyze(tender_text):
     return []
 
 
-def run(task, data, tender_text=None, style_text=None, max_rounds=2, progress_callback=None):
+def run(task, data, tender_text=None, style_text=None, max_rounds=2, progress_callback=None, tender_result=None):
     """Elindítja a teljes multi-agent folyamatot."""
 
     def log(msg, pct=None, partial_text=None):
@@ -144,12 +144,18 @@ def run(task, data, tender_text=None, style_text=None, max_rounds=2, progress_ca
 
     # 3. Pályázati kiírás elemzése
     tender_requirements = ""
-    if tender_text:
+    if tender_result:
+        log("Elmentett pályázati elemzés betöltve.", 25)
+        tender = tender_result
+    elif tender_text:
         log("Pályázati kiírás elemzése...", 25)
         tender = analyze_tender(tender_text)
-        if tender:
-            print_tender_summary(tender)
-            tender_requirements = f"""
+    else:
+        tender = None
+
+    if tender:
+        print_tender_summary(tender)
+        tender_requirements = f"""
     PÁLYÁZAT: {tender.get('palyazat_neve', '')}
     HATÁRIDŐ: {tender.get('beadasi_hatarid', '')}
     MAX TÁMOGATÁS: {tender.get('max_tamogatas', '')}

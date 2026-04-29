@@ -82,13 +82,14 @@ class GeneratorWorker(QThread):
     cancelled = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, task, data, tender_text, style_text, max_rounds):
+    def __init__(self, task, data, tender_text, style_text, max_rounds, tender_result=None):
         super().__init__()
         self.task = task
         self.data = data
         self.tender_text = tender_text
         self.style_text = style_text
         self.max_rounds = max_rounds
+        self.tender_result = tender_result
         self._cancel = False
 
     def cancel(self):
@@ -103,7 +104,8 @@ class GeneratorWorker(QThread):
                 tender_text=self.tender_text or None,
                 style_text=self.style_text or None,
                 max_rounds=self.max_rounds,
-                progress_callback=self._on_progress
+                progress_callback=self._on_progress,
+                tender_result=self.tender_result
             )
             if self._cancel:
                 self.cancelled.emit()
@@ -552,6 +554,7 @@ class MainWindow(QMainWindow):
         self._rewrite_worker = None
         self._file_loaders = set()
         self._tender_info = {}
+        self._saved_analysis_name = None  # betöltött elmentett elemzés neve
         self._versions = []   # [(text, score), ...]
         self._version_idx = -1
         self._checklist_add_row = None
@@ -569,6 +572,7 @@ class MainWindow(QMainWindow):
         self._apply_style()
         self._restore_draft()
         self._restore_session()
+        self._refresh_saved_combo()
 
         # Auto-mentés 30 másodpercenként
         self._autosave_timer = QTimer(self)
@@ -649,11 +653,36 @@ class MainWindow(QMainWindow):
         )
         self.btn_tender_info.clicked.connect(self._show_tender_info)
         kiiras_row.addWidget(self.btn_tender_info)
+        self.btn_save_analysis = QPushButton("💾")
+        self.btn_save_analysis.setFixedSize(34, 34)
+        self.btn_save_analysis.setToolTip("Elemzés mentése (újrafelhasználáshoz)")
+        self.btn_save_analysis.setEnabled(False)
+        self.btn_save_analysis.setStyleSheet(
+            "QPushButton { background:#f1f5f9; border:1px solid #cbd5e1; border-radius:5px; font-size:15px; }"
+            "QPushButton:hover { background:#dcfce7; border-color:#86efac; }"
+            "QPushButton:disabled { color:#cbd5e1; }"
+        )
+        self.btn_save_analysis.clicked.connect(self._save_tender_analysis)
+        kiiras_row.addWidget(self.btn_save_analysis)
         layout.addLayout(kiiras_row)
 
         self.btn_ceg = self._file_button("Cégadatlap (PDF/DOCX)")
         self.btn_ceg.clicked.connect(lambda: self._pick_file("ceg"))
         layout.addWidget(self.btn_ceg)
+
+        layout.addWidget(self._hsep())
+
+        # Korábbi elemzések szekció
+        layout.addWidget(self._section_label("Korábbi elemzések"))
+        self._saved_combo = QComboBox()
+        self._saved_combo.setToolTip("Korábban elmentett pályázati kiírás elemzések")
+        layout.addWidget(self._saved_combo)
+        load_saved_btn = QPushButton("Betöltés")
+        load_saved_btn.setObjectName("resetBtn")
+        load_saved_btn.setFixedHeight(30)
+        load_saved_btn.setToolTip("Kiválasztott elemzés betöltése (az elemzés újra nem fut le)")
+        load_saved_btn.clicked.connect(self._load_saved_analysis)
+        layout.addWidget(load_saved_btn)
 
         layout.addWidget(self._hsep())
 
@@ -1022,6 +1051,7 @@ class MainWindow(QMainWindow):
     def _on_pre_analysis_done(self, tender):
         self._tender_info = tender
         self.btn_tender_info.setEnabled(True)
+        self.btn_save_analysis.setEnabled(bool(self._kiiras_path))
         self.status_bar.showMessage("Pályázati kiírás elemzése kész – kattints a 📋 gombra a megtekintéshez.")
 
     def _show_tender_info(self):
@@ -1029,6 +1059,44 @@ class MainWindow(QMainWindow):
             return
         dlg = TenderInfoDialog(self._tender_info, self)
         dlg.exec()
+
+    def _refresh_saved_combo(self):
+        from tender_analyzer import list_saved_analyses
+        self._saved_combo.blockSignals(True)
+        self._saved_combo.clear()
+        self._saved_combo.addItem("-- Válassz korábbi elemzést --")
+        for name in list_saved_analyses():
+            self._saved_combo.addItem(name)
+        self._saved_combo.blockSignals(False)
+
+    def _save_tender_analysis(self):
+        if not self._tender_info or not self._kiiras_path:
+            return
+        from tender_analyzer import save_analysis
+        filename = os.path.basename(self._kiiras_path)
+        save_analysis(filename, self._tender_info)
+        self._refresh_saved_combo()
+        self.status_bar.showMessage(f"Elemzés elmentve: {filename}")
+
+    def _load_saved_analysis(self):
+        idx = self._saved_combo.currentIndex()
+        if idx <= 0:
+            return
+        name = self._saved_combo.currentText()
+        from tender_analyzer import load_analysis
+        result = load_analysis(name)
+        if not result:
+            self.status_bar.showMessage(f"Nem sikerült betölteni: {name}")
+            return
+        self._tender_info = result
+        self._tender_text = ""
+        self._kiiras_path = None
+        self._saved_analysis_name = name
+        self.btn_kiiras.setText(f"  {name} (betöltve)")
+        self.btn_tender_info.setEnabled(True)
+        self.btn_save_analysis.setEnabled(False)
+        self._update_checklist()
+        self.status_bar.showMessage(f"Elmentett elemzés betöltve: {name} – az elemzés nem fut újra.")
 
     def _on_file_loaded(self, text, role):
         if role == "tender":
@@ -1064,8 +1132,19 @@ class MainWindow(QMainWindow):
             return
 
         if self._tender_text:
-            # Először elemezzük ki a hiányzó adatokat
             self._start_pre_analysis(task, data)
+        elif self._tender_info:
+            # Elmentett elemzés betöltve – elemzés nem fut újra
+            missing_fields = self._tender_info.get('hianyzó_adatok', [])
+            if missing_fields:
+                dlg = MissingDataDialog(missing_fields, self)
+                if dlg.exec() == QDialog.DialogCode.Accepted:
+                    values = dlg.get_values()
+                    if values:
+                        extra = "\n\nFelhasználó által megadott hiányzó adatok:\n"
+                        extra += "\n".join(f"- {k}: {v}" for k, v in values.items())
+                        data = data + extra
+            self._start_generation(task, data)
         else:
             self._start_generation(task, data)
 
@@ -1100,12 +1179,14 @@ class MainWindow(QMainWindow):
 
     def _start_generation(self, task, data):
         self._set_busy(True, "Szöveg generálása...")
+        tender_result = self._tender_info if (self._tender_info and not self._tender_text) else None
         self._generator_worker = GeneratorWorker(
             task=task,
             data=data,
             tender_text=self._tender_text,
             style_text=self._style_text,
-            max_rounds=self.rounds_spin.value()
+            max_rounds=self.rounds_spin.value(),
+            tender_result=tender_result
         )
         self._generator_worker.progress.connect(self._on_progress)
         self._generator_worker.partial_text.connect(self._on_partial_text)
@@ -1686,16 +1767,19 @@ class MainWindow(QMainWindow):
         self._ceg_path = None
         self._tender_text = ""
         self._style_text = ""
+        self._saved_analysis_name = None
         self.btn_regi.setText("  Régi pályázatok (stílustanulás)")
         self.btn_kiiras.setText("  Pályázati kiírás")
         self.btn_ceg.setText("  Cégadatlap (PDF/DOCX)")
+        self.btn_tender_info.setEnabled(False)
+        self.btn_save_analysis.setEnabled(False)
+        self._saved_combo.setCurrentIndex(0)
         # Szövegmezők
         self.task_edit.clear()
         self.data_edit.clear()
         # Checklist elrejtése
         self.checklist_frame.setVisible(False)
         self._tender_info = {}
-        self.btn_tender_info.setEnabled(False)
         self.status_bar.showMessage("Mezők törölve.")
 
     def _on_clear(self):

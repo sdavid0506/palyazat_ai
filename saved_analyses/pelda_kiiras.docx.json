@@ -1,0 +1,73 @@
+{
+  "palyazat_neve": "Digitális Vállalkozásfejlesztési Alap 2025 – Pályázati felhívás kis- és középvállalkozások részére (azonosítószám: nem található)",
+  "beadasi_hatarid": "2025. március 31. 23:59",
+  "max_tamogatas": "10 000 000 Ft",
+  "tamogatas_arany": "maximum 85% (az elszámolható költségek arányában)",
+  "megvalositas_hatarideje": "maximum 18 hónap (pontos záró dátum nem található – a szerződéskötés dátumától számítandó)",
+  "fenntartasi_kotelezettseg": "minimum 3 év (fenntarthatósági nyilatkozat alapján)",
+  "kotelezo_fejezetek": [],
+  "kotelezo_dokumentumok": [
+    "1. fejezet: Vállalkozás bemutatása és projektindoklás",
+    "2. fejezet: Projekt céljai, indikátorok és mérési módszertan",
+    "3. fejezet: Megvalósíthatósági tanulmány és ütemterv",
+    "4. fejezet: Részletes, tételes költségvetési terv",
+    "5. fejezet: Fenntarthatósági nyilatkozat (minimum 3 évre vonatkozóan)",
+    "6. fejezet: Kockázatelemzés és kockázatkezelési terv",
+    "Egyéb kötelező mellékletek (pl. NAV-igazolás, cégkivonat, mérlegek): nem találhatók részletesen a szövegben"
+  ],
+  "ertékelesi_szempontok": [],
+  "fontos_kovetelmenyek": [
+    "Magyarországon bejegyzett, működő jogi személy vagy egyéni vállalkozó",
+    "Legalább 2 lezárt üzleti év megléte kötelező",
+    "Maximum 250 fő foglalkoztatott (KKV besorolás szerinti felső határ)",
+    "Éves nettó árbevétel: maximum 4 000 000 000 Ft",
+    "Minimális projektköltség: 2 000 000 Ft",
+    "Maximális projektköltség: 50 000 000 Ft",
+    "Szükséges önrész: legalább 15%",
+    "Lejárt köztartozás nem állhat fenn (NAV és önkormányzat felé egyaránt)",
+    "Nem állhat felszámolás, végelszámolás vagy csődeljárás alatt",
+    "A pályázó az elmúlt 3 évben nem kaphatott azonos célú támogatást"
+  ],
+  "jogosultsagi_feltetelek": [
+    "Magyarországon bejegyzett, működő jogi személy vagy egyéni vállalkozó",
+    "Legalább 2 lezárt üzleti év megléte kötelező",
+    "Maximum 250 fő foglalkoztatott (KKV besorolás szerinti felső határ)",
+    "Éves nettó árbevétel: maximum 4 000 000 000 Ft",
+    "Minimális projektköltség: 2 000 000 Ft",
+    "Maximális projektköltség: 50 000 000 Ft",
+    "Szükséges önrész: legalább 15%",
+    "Lejárt köztartozás nem állhat fenn (NAV és önkormányzat felé egyaránt)",
+    "Nem állhat felszámolás, végelszámolás vagy csődeljárás alatt",
+    "A pályázó az elmúlt 3 évben nem kaphatott azonos célú támogatást"
+  ],
+  "tamogathato_tevekenysegek": [
+    "Munkavállalók digitális kompetenciafejlesztése (képzések, tréningek)",
+    "Digitális infrastruktúra fejlesztése (hardver, szoftver, felhőszolgáltatások)",
+    "Folyamatautomatizálás és digitalizáció",
+    "Kiberbiztonság fejlesztése, adatvédelmi rendszerek kiépítése",
+    "Digitális marketing és online értékesítési csatornák kialakítása",
+    "ERP, CRM vagy egyéb vállalatirányítási rendszerek bevezetése"
+  ],
+  "nem_tamogathato_koltsegek": [
+    "nem található"
+  ],
+  "fontos_hataridok": [
+    "Kiírás dátuma: 2025. január 15.",
+    "Pályázat beadási határideje: 2025. március 31. 23:59",
+    "Hiánypótlási határidő: befogadástól számított 10 munkanapon belül",
+    "Elbírálás várható időtartama: 60 munkanap (a befogadástól számítva)",
+    "Projekt megvalósítási határidő: maximum 18 hónap (kezdő dátum nem található)"
+  ],
+  "hianyzó_adatok": [
+    "Van-e legalább 2 lezárt üzleti évük?",
+    "Mennyi a vállalkozás jelenlegi foglalkoztatotti létszáma?",
+    "Mennyi a vállalkozás éves nettó árbevétele (utolsó lezárt üzleti év alapján)?",
+    "Áll-e fenn jelenleg bármilyen lejárt köztartozásuk NAV vagy önkormányzat felé?",
+    "Indult-e ellenük felszámolási, végelszámolási vagy csődeljárás?",
+    "Kaptak-e az elmúlt 3 évben azonos célú (digitális fejlesztési) támogatást? Ha igen, mikor és milyen összegben?",
+    "Mi a tervezett projekt becsült összköltsége (belefér-e a 2 000 000 – 50 000 000 Ft-os sávba)?",
+    "Rendelkeznek-e a szükséges minimum 15%-os önrésszel?",
+    "Pontosan milyen digitális fejlesztést terveznek megvalósítani (tevékenységkategória meghatározásához)?",
+    "Igényelnek-e előleget (az elnyert támogatás 30%-a igényelhető)?"
+  ]
+}

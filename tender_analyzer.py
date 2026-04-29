@@ -3,7 +3,9 @@ from langchain_core.prompts import ChatPromptTemplate
 from file_reader import read_file
 from dotenv import load_dotenv
 import hashlib
+import json
 import os
+import sys
 
 load_dotenv()
 
@@ -13,6 +15,31 @@ llm = ChatAnthropic(
 )
 
 _tender_cache = {}  # {"hash": ..., "result": ...}
+
+_base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+SAVED_DIR = os.path.join(_base_dir, "saved_analyses")
+
+
+def save_analysis(filename, result):
+    os.makedirs(SAVED_DIR, exist_ok=True)
+    safe = filename.replace("/", "_").replace("\\", "_")
+    with open(os.path.join(SAVED_DIR, safe + ".json"), 'w', encoding='utf-8') as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+
+
+def load_analysis(filename):
+    safe = filename.replace("/", "_").replace("\\", "_")
+    path = os.path.join(SAVED_DIR, safe + ".json")
+    if not os.path.exists(path):
+        return None
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def list_saved_analyses():
+    if not os.path.exists(SAVED_DIR):
+        return []
+    return sorted(f[:-5] for f in os.listdir(SAVED_DIR) if f.endswith('.json'))
 
 
 def clear_tender_cache():
